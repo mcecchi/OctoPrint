@@ -1,5 +1,6 @@
-# coding=utf-8
-from __future__ import absolute_import, division, print_function
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 __author__ = "Gina Häußge <osd@foosel.net> based on work by David Braam"
 __license__ = 'GNU Affero General Public License http://www.gnu.org/licenses/agpl.html'
 __copyright__ = "Copyright (C) 2013 David Braam, Gina Häußge - Released under terms of the AGPLv3 License"
@@ -7,6 +8,7 @@ __copyright__ = "Copyright (C) 2013 David Braam, Gina Häußge - Released under 
 
 import math
 import os
+import io
 import base64
 import zlib
 import logging
@@ -238,7 +240,7 @@ class gcode(object):
 			lineNo += 1
 			readBytes += len(line.encode("utf-8"))
 
-			if isinstance(gcodeFile, (file, codecs.StreamReaderWriter)):
+			if isinstance(gcodeFile, (io.IOBase, codecs.StreamReaderWriter)):
 				percentage = float(readBytes) / float(self._fileSize)
 			elif isinstance(gcodeFile, (list)):
 				percentage = float(lineNo) / float(len(gcodeFile))
@@ -248,8 +250,8 @@ class gcode(object):
 			try:
 				if self._progress_callback is not None and (lineNo % 1000 == 0) and percentage is not None:
 					self._progress_callback(percentage)
-			except:
-				pass
+			except Exception as exc:
+				self._logger.debug("Progress callback %r error: %s", self._progress_callback, exc)
 
 			if ';' in line:
 				comment = line[line.find(';')+1:].strip()
@@ -274,7 +276,7 @@ class gcode(object):
 					if "filament_diameter" in curaOptions:
 						try:
 							self._filamentDiameter = float(curaOptions["filament_diameter"])
-						except:
+						except ValueError:
 							self._filamentDiameter = 0.0
 				elif comment.startswith("filamentDiameter,"):
 					# Simplify3D
@@ -429,7 +431,7 @@ class gcode(object):
 
 			elif T is not None:
 				if T > max_extruders:
-					self._logger.warn("GCODE tried to select tool %d, that looks wrong, ignoring for GCODE analysis" % T)
+					self._logger.warning("GCODE tried to select tool %d, that looks wrong, ignoring for GCODE analysis" % T)
 				elif T == currentExtruder:
 					pass
 				else:
@@ -482,7 +484,7 @@ def getCodeInt(line, code):
 		if m < 0:
 			return int(line[n:])
 		return int(line[n:m])
-	except:
+	except ValueError:
 		return None
 
 
@@ -495,5 +497,5 @@ def getCodeFloat(line, code):
 		if m < 0:
 			return float(line[n:])
 		return float(line[n:m])
-	except:
+	except ValueError:
 		return None

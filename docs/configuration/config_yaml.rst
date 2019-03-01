@@ -29,7 +29,7 @@ Use the following settings to enable access control:
      # The user manager implementation to use for accessing user information. Currently only a filebased
      # user manager is implemented which stores configured accounts in a YAML file (Default: users.yaml
      # in the default configuration folder, see below)
-     userManager: octoprint.users.FilebasedUserManager
+     userManager: octoprint.access.users.FilebasedUserManager
 
      # The YAML user file to use. If left out defaults to users.yaml in the default configuration folder.
      userFile: /path/to/users.yaml
@@ -81,7 +81,8 @@ Settings for the REST API:
      # Whether to allow cross origin access to the API or not
      allowCrossOrigin: false
 
-     # Additional app api keys, see REST API > Apps in the docs
+     # Additional app api keys, see REST API > Apps in the docs.
+     # Deprecated since 1.3.11, to be removed in 1.4.0!
      apps:
        "some.app.identifier:some_version":
          pubkey: <RSA pubkey>
@@ -562,6 +563,9 @@ Use the following settings to enable or disable OctoPrint features:
      - M117
      - M118
 
+     # whether G90/G91 also influence absolute/relative mode of extruders
+     g90InfluencesExtruder: false
+
 .. _sec-configuration-config_yaml-folder:
 
 Folder
@@ -664,6 +668,11 @@ plugins are tracked:
 
      # Identifiers of installed but disabled plugins
      _disabled:
+     - ...
+
+     # Identifiers of plugins for which python compatibility information will be ignored and
+     # the plugin considered compatible in any case. Only for development, do NOT use in production.
+     _forcedCompatible:
      - ...
 
      # The rest are individual plugin settings, each tracked by their identifier, e.g.:
@@ -1058,6 +1067,15 @@ Use the following settings to configure the server:
        # How many days to leave unused entries in the preemptive cache config
        until: 7
 
+     # Configuration of the client IP check to warn about connections from external networks
+     ipCheck:
+
+       # whether to enable the check, defaults to true
+       enabled: true
+
+       # additional non-local subnets to consider trusted, in CIDR notation, e.g. "192.168.1.0/24"
+       trustedSubnets: []
+
 
 .. note::
 
@@ -1087,14 +1105,14 @@ Settings for the built-in slicing support:
    slicing:
 
      # Whether to enable slicing support or not
-     enabled:
+     enabled: true
 
      # Default slicer to use
-     defaultSlicer: cura
+     defaultSlicer: null
 
      # Default slicing profiles per slicer
      defaultProfiles:
-       cura: ...
+       curalegacy: ...
 
 .. _sec-configuration-config_yaml-system:
 
@@ -1165,7 +1183,7 @@ Use `Javascript regular expressions <https://developer.mozilla.org/en/docs/Web/J
    # A list of filters to display in the terminal tab. Defaults to the filters shown below
    terminalFilters:
    - name: Suppress temperature messages
-     regex: '(Send: (N\d+\s+)?M105)|(Recv: ok T:)'
+     regex: '(Send: (N\d+\s+)?M105)|(Recv:\s+(ok\s+)?.*(B|T\d*):\d+)'
    - name: Suppress SD status messages
      regex: '(Send: (N\d+\s+)?M27)|(Recv: SD printing byte)'
    - name: Suppress wait responses

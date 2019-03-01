@@ -1,11 +1,12 @@
-# coding=utf-8
-from __future__ import absolute_import, division, print_function
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __license__ = 'GNU Affero General Public License http://www.gnu.org/licenses/agpl.html'
 __copyright__ = "Copyright (C) 2015 The OctoPrint Project - Released under terms of the AGPLv3 License"
 
 
 import click
+click.disable_unicode_literals_warning = True
 import logging
 import sys
 
@@ -26,6 +27,15 @@ def run_server(basedir, configfile, host, port, debug, allow_root, logging_confi
 		logger.info("Starting OctoPrint {}".format(__display_version__))
 		if safe_mode:
 			logger.info("Starting in SAFE MODE. Third party plugins will be disabled!")
+			if safe_mode == "flag":
+				reason = "command line flag"
+			elif safe_mode == "settings":
+				reason = "setting in config.yaml"
+			elif safe_mode == "incomplete_startup":
+				reason = "problem during last startup"
+			else:
+				reason = "unknown"
+			logger.info("Reason for safe mode: {}".format(reason))
 
 		if recorder and len(recorder):
 			logger.info(get_divider_line("-", "Logged during platform initialization:"))
@@ -179,7 +189,7 @@ def serve_command(ctx, **kwargs):
 	basedir = get_value("basedir")
 	configfile = get_value("configfile")
 	verbosity = get_value("verbosity")
-	safe_mode = get_value("safe_mode")
+	safe_mode = "flag" if get_value("safe_mode") else None
 	ignore_blacklist = get_value("ignore_blacklist")
 
 	run_server(basedir, configfile, host, port, debug,
@@ -217,7 +227,7 @@ if sys.platform != "win32" and sys.platform != "darwin":
 		basedir = get_value("basedir")
 		configfile = get_value("configfile")
 		verbosity = get_value("verbosity")
-		safe_mode = get_value("safe_mode")
+		safe_mode = "flag" if get_value("safe_mode") else None
 		ignore_blacklist = get_value("ignore_blacklist")
 
 		if pid is None:

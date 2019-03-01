@@ -1,10 +1,11 @@
-# coding=utf-8
-from __future__ import absolute_import, division, print_function
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 __author__ = "Gina Häußge <osd@foosel.net>"
 __license__ = 'GNU Affero General Public License http://www.gnu.org/licenses/agpl.html'
 __copyright__ = "Copyright (C) 2014 The OctoPrint Project - Released under terms of the AGPLv3 License"
 
+import io
 import logging
 
 from flask import Blueprint, request, jsonify, abort, current_app, session, make_response, g
@@ -12,12 +13,13 @@ from flask_login import login_user, logout_user, current_user
 from flask_principal import Identity, identity_changed, AnonymousIdentity
 
 import octoprint.access.users
+import octoprint.util.net as util_net
 import octoprint.server
 import octoprint.plugin
 from octoprint.server import NO_CONTENT
 from octoprint.settings import settings as s, valid_boolean_trues
 from octoprint.server.util import noCachingExceptGetResponseHandler, enforceApiKeyRequestHandler, loginFromApiKeyRequestHandler, loginFromAuthorizationHeaderRequestHandler, corsRequestHandler, corsResponseHandler
-from octoprint.server.util.flask import require_firstrun, get_json_command_from_request, passive_login
+from octoprint.server.util.flask import no_firstrun_access, get_json_command_from_request, passive_login, get_remote_address
 from octoprint.access.permissions import Permissions
 
 
@@ -73,7 +75,7 @@ def pluginData(name):
 #~~ commands for plugins
 
 @api.route("/plugin/<string:name>", methods=["POST"])
-@require_firstrun
+@no_firstrun_access
 def pluginCommand(name):
 	api_plugins = octoprint.plugin.plugin_manager().get_filtered_implementations(lambda p: p._identifier == name, octoprint.plugin.SimpleApiPlugin)
 
@@ -118,7 +120,7 @@ def wizardState():
 			details = implementation.get_wizard_details()
 			version = implementation.get_wizard_version()
 			ignored = octoprint.plugin.WizardPlugin.is_wizard_ignored(seen_wizards, implementation)
-		except:
+		except Exception:
 			logging.getLogger(__name__).exception("There was an error fetching wizard details for {}, ignoring".format(name))
 		else:
 			result[name] = dict(required=required, details=details, version=version, ignored=ignored)
@@ -134,7 +136,7 @@ def wizardFinish():
 	data = dict()
 	try:
 		data = request.get_json()
-	except:
+	except Exception:
 		abort(400)
 
 	if data is None:
@@ -156,7 +158,7 @@ def wizardFinish():
 			implementation.on_wizard_finish(name in handled)
 			if name in handled:
 				seen_wizards[name] = implementation.get_wizard_version()
-		except:
+		except Exception:
 			logging.getLogger(__name__).exception("There was an error finishing the wizard for {}, ignoring".format(name))
 
 	s().set(["server", "seenWizards"], seen_wizards)
@@ -169,7 +171,7 @@ def wizardFinish():
 
 
 @api.route("/state", methods=["GET"])
-@require_firstrun
+@no_firstrun_access
 def apiPrinterState():
 	return make_response(("/api/state has been deprecated, use /api/printer instead", 405, []))
 
@@ -178,7 +180,8 @@ def apiPrinterState():
 def apiVersion():
 	return jsonify({
 		"server": octoprint.server.VERSION,
-		"api": VERSION
+		"api": VERSION,
+		"text": "OctoPrint {}".format(octoprint.server.DISPLAY_VERSION)
 	})
 
 
@@ -215,7 +218,16 @@ def login():
 					g.user = user
 				login_user(user, remember=remember)
 				identity_changed.send(current_app._get_current_object(), identity=Identity(user.get_id()))
-				return jsonify(user)
+
+				remote_addr = get_remote_address(request)
+				logging.getLogger(__name__).info("Actively logging in user {} from {}".format(user.get_id(), remote_addr))
+
+				response = user.as_dict()
+				response["_is_external_client"] = s().getBoolean(["server", "ipCheck", "enabled"]) \
+				                                  and not util_net.is_lan_address(remote_addr,
+				                                                                  additional_private=s().get(["server", "ipCheck", "trustedSubnets"]))
+				return jsonify(response)
+
 		return make_response(("User unknown or password incorrect", 401, []))
 
 	elif "passive" in data:
@@ -245,7 +257,7 @@ def _logout(user):
 
 
 @api.route("/util/test", methods=["POST"])
-@require_firstrun
+@no_firstrun_access
 @Permissions.ADMIN.require(403)
 def utilTest():
 	valid_commands = dict(
@@ -305,7 +317,7 @@ def _test_path(data):
 		elif check_type == "dir" and allow_create_dir:
 			try:
 				os.makedirs(path)
-			except:
+			except Exception:
 				logging.getLogger(__name__).exception("Error while trying to create {}".format(path))
 				return jsonify(path=path, exists=False, typeok=False, broken_symlink=False, access=False, result=False)
 			else:
@@ -331,10 +343,10 @@ def _test_path(data):
 	if check_writable_dir and check_type == "dir":
 		try:
 			test_path = os.path.join(path, ".testballoon.txt")
-			with open(test_path, "wb") as f:
+			with io.open(test_path, 'wb') as f:
 				f.write("Test")
 			os.remove(test_path)
-		except:
+		except Exception:
 			logging.getLogger(__name__).exception("Error while testing if {} is really writable".format(path))
 			return jsonify(path=path, exists=exists, typeok=typeok, broken_symlink=False, access=False, result=False)
 
@@ -391,7 +403,7 @@ def _test_url(data):
 	if "timeout" in data:
 		try:
 			timeout = float(data["timeout"])
-		except:
+		except Exception:
 			return make_response("{!r} is not a valid value for timeout (must be int or float)".format(data["timeout"]),
 			                     400)
 
@@ -418,11 +430,11 @@ def _test_url(data):
 	if "content_type_whitelist" in data:
 		if not isinstance(data["content_type_whitelist"], (list, tuple)):
 			return make_response("content_type_whitelist must be a list of mime types")
-		content_type_whitelist = map(util.parse_mime_type, data["content_type_whitelist"])
+		content_type_whitelist = list(map(util.parse_mime_type, data["content_type_whitelist"]))
 	if "content_type_blacklist" in data:
 		if not isinstance(data["content_type_whitelist"], (list, tuple)):
 			return make_response("content_type_blacklist must be a list of mime types")
-		content_type_blacklist = map(util.parse_mime_type, data["content_type_blacklist"])
+		content_type_blacklist = list(map(util.parse_mime_type, data["content_type_blacklist"]))
 
 	response_result = None
 	outcome = True
@@ -457,7 +469,7 @@ def _test_url(data):
 					content = base64.standard_b64encode(response.content)
 
 				response_result["content"] = content
-	except:
+	except Exception:
 		logging.getLogger(__name__).exception("Error while running a test {} request on {}".format(method, url))
 		outcome = False
 
@@ -475,14 +487,14 @@ def _test_server(data):
 	host = data["host"]
 	try:
 		port = int(data["port"])
-	except:
+	except Exception:
 		return make_response("{!r} is not a valid value for port (must be int)".format(data["port"]), 400)
 
 	timeout = 3.05
 	if "timeout" in data:
 		try:
 			timeout = float(data["timeout"])
-		except:
+		except Exception:
 			return make_response("{!r} is not a valid value for timeout (must be int or float)".format(data["timeout"]),
 			                     400)
 
