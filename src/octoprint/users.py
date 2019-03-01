@@ -20,7 +20,7 @@ from builtins import range, bytes
 
 from octoprint.settings import settings
 
-from octoprint.util import atomic_write, to_str, deprecated
+from octoprint.util import atomic_write, to_bytes, deprecated
 
 class UserManager(object):
 	valid_roles = ["user", "admin"]
@@ -30,6 +30,8 @@ class UserManager(object):
 		self._session_users_by_session = dict()
 		self._sessionids_by_userid = dict()
 		self._enabled = True
+
+		self._callbacks = []
 
 	@property
 	def enabled(self):
@@ -44,6 +46,16 @@ class UserManager(object):
 
 	def disable(self):
 		self._enabled = False
+
+	def register_callback(self, callback):
+		self._callbacks.append(callback)
+
+	def unregister_callback(self, callback):
+		try:
+			self._callbacks.remove(callback)
+		except ValueError:
+			# just wasn't registered
+			pass
 
 	def login_user(self, user):
 		self._cleanup_sessions()
@@ -69,6 +81,12 @@ class UserManager(object):
 		self._sessionids_by_userid[userid].add(user.session)
 
 		self._logger.debug("Logged in user: %r" % user)
+
+		for callback in self._callbacks:
+			try:
+				callback("login", user)
+			except:
+				self._logger.exception("Error while calling login callback {!r}".format(callback))
 
 		return user
 
@@ -96,6 +114,12 @@ class UserManager(object):
 
 		self._logger.debug("Logged out user: %r" % user)
 
+		for callback in self._callbacks:
+			try:
+				callback("logout", user)
+			except:
+				self._logger.exception("Error while calling logout callback {!r}".format(callback))
+
 	def _cleanup_sessions(self):
 		import time
 		for session, user in self._session_users_by_session.items():
@@ -116,7 +140,7 @@ class UserManager(object):
 				settings().set(["accessControl", "salt"], salt)
 				settings().save()
 
-		return hashlib.sha512(to_str(password, encoding="utf-8", errors="replace") + to_str(salt)).hexdigest()
+		return hashlib.sha512(to_bytes(password, encoding="utf-8", errors="replace") + to_bytes(salt)).hexdigest()
 
 	def checkPassword(self, username, password):
 		user = self.findUser(username)
@@ -517,6 +541,11 @@ class SessionUser(wrapt.ObjectProxy):
 		chars = string.ascii_uppercase + string.ascii_lowercase + string.digits
 		self._self_session = "".join(random.choice(chars) for _ in range(10))
 		self._self_created = time.time()
+
+	def asDict(self):
+		result = self.__wrapped__.asDict()
+		result.update(dict(session=self.session))
+		return result
 
 	@property
 	def session(self):

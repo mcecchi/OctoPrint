@@ -114,9 +114,12 @@ $(function() {
         self.appearance_colorIcon = ko.observable();
         self.appearance_defaultLanguage = ko.observable();
         self.appearance_showFahrenheitAlso = ko.observable(undefined);
+        self.appearance_fuzzyTimes = ko.observable(undefined);
 
         self.printer_defaultExtrusionLength = ko.observable(undefined);
 
+        self.webcam_webcamEnabled = ko.observable(undefined);
+        self.webcam_timelapseEnabled = ko.observable(undefined);
         self.webcam_streamUrl = ko.observable(undefined);
         self.webcam_streamRatio = ko.observable(undefined);
         self.webcam_streamTimeout = ko.observable(undefined);
@@ -183,12 +186,14 @@ $(function() {
         self.serial_supportResendsWithoutOk = ko.observable(undefined);
         self.serial_logPositionOnPause = ko.observable(undefined);
         self.serial_logPositionOnCancel = ko.observable(undefined);
+        self.serial_abortHeatupOnCancel = ko.observable(undefined);
         self.serial_maxTimeoutsIdle = ko.observable(undefined);
         self.serial_maxTimeoutsPrinting = ko.observable(undefined);
         self.serial_maxTimeoutsLong = ko.observable(undefined);
         self.serial_capAutoreportTemp = ko.observable(undefined);
         self.serial_capAutoreportSdStatus = ko.observable(undefined);
         self.serial_capBusyProtocol = ko.observable(undefined);
+        self.serial_capEmergencyParser = ko.observable(undefined);
 
         self.folder_uploads = ko.observable(undefined);
         self.folder_timelapse = ko.observable(undefined);
@@ -299,7 +304,7 @@ $(function() {
         };
 
         self.addTerminalFilter = function() {
-            self.terminalFilters.push({name: "New", regex: "(Send: M105)|(Recv: ok T:)"})
+            self.terminalFilters.push({name: "New", regex: "(Send: (N\d+\s+)?M105)|(Recv:\s+(ok\s+)?.*(B|T\d*):\d+)"})
         };
 
         self.removeTerminalFilter = function(filter) {

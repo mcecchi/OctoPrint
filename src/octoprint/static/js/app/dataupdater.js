@@ -154,10 +154,27 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
             if (data["safe_mode"]) {
                 // safe mode is active, let's inform the user
                 log.info("Safe mode is active. Third party plugins are disabled and cannot be enabled.");
+                log.info("Reason for safe mode: " + data["safe_mode"]);
+
+                var reason = gettext("Unknown");
+                switch (data["safe_mode"]) {
+                    case "flag": {
+                        reason = gettext("Command line flag");
+                        break;
+                    }
+                    case "settings": {
+                        reason = gettext("Setting in config.yaml");
+                        break;
+                    }
+                    case "incomplete_startup": {
+                        reason = gettext("Problem during last startup");
+                        break;
+                    }
+                }
 
                 self._safeModePopup = new PNotify({
                     title: gettext("Safe mode is active"),
-                    text: gettext("The server is currently running in safe mode. Third party plugins are disabled and cannot be enabled."),
+                    text: _.sprintf(gettext("<p>The server is currently running in safe mode. Third party plugins are disabled and cannot be enabled.</p><p>Reason: %(reason)s</p>"), {reason: reason}),
                     hide: false
                 });
             }
@@ -342,6 +359,12 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
         })
     };
 
+    self._onReauthMessage = function(event) {
+        self._ifInitialized(function() {
+            callViewModels(self.allViewModels, "onDataUpdaterReauthRequired", [event.data.reason]);
+        })
+    };
+
     self._onIncreaseRate = function(measurement, minimum) {
         log.debug("We are fast (" + measurement + " < " + minimum + "), increasing refresh rate");
         OctoPrint.socket.increaseRate();
@@ -372,5 +395,6 @@ function DataUpdater(allViewModels, connectCallback, disconnectCallback) {
         .onMessage("slicingProgress", self._onSlicingProgress)
         .onMessage("event", self._onEvent)
         .onMessage("timelapse", self._onTimelapse)
-        .onMessage("plugin", self._onPluginMessage);
+        .onMessage("plugin", self._onPluginMessage)
+        .onMessage("reauthRequired", self._onReauthMessage);
 }

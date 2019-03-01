@@ -20,7 +20,7 @@ from octoprint.server import app, userManager, pluginManager, gettext, \
 	debug, LOCALES, VERSION, DISPLAY_VERSION, UI_API_KEY, BRANCH, preemptiveCache, \
 	NOT_MODIFIED
 from octoprint.settings import settings
-from octoprint.filemanager import get_all_extensions
+from octoprint.filemanager import full_extension_tree, get_all_extensions
 from octoprint.util import to_unicode
 
 import re
@@ -179,7 +179,7 @@ def index():
 
 	enable_accesscontrol = userManager.enabled
 	enable_gcodeviewer = settings().getBoolean(["gcodeViewer", "enabled"])
-	enable_timelapse = bool(settings().get(["webcam", "snapshot"]) and settings().get(["webcam", "ffmpeg"]))
+	enable_timelapse = settings().getBoolean(["webcam", "timelapseEnabled"])
 
 	def default_template_filter(template_type, template_key):
 		if template_type == "navbar":
@@ -196,7 +196,7 @@ def index():
 
 	default_additional_etag = [enable_accesscontrol,
 	                           enable_gcodeviewer,
-	                           enable_timelapse]
+	                           enable_timelapse] + sorted(["{}:{}".format(k, v) for k, v in _plugin_vars.items()])
 
 	def get_preemptively_cached_view(key, view, data=None, additional_request_data=None, additional_unless=None):
 		if (data is None and additional_request_data is None) or g.locale is None:
@@ -355,7 +355,7 @@ def index():
 		                                   now)
 
 		render_kwargs.update(dict(
-			webcamStream=settings().get(["webcam", "stream"]),
+			enableWebcam=settings().getBoolean(["webcam", "webcamEnabled"]) and bool(settings().get(["webcam", "stream"])),
 			enableTemperatureGraph=settings().get(["feature", "temperatureGraph"]),
 			enableAccessControl=enable_accesscontrol,
 			accessControlActive=accesscontrol_active,
@@ -417,10 +417,20 @@ def index():
 
 
 def _get_render_kwargs(templates, plugin_names, plugin_vars, now):
+	global _logger
+
 	#~~ a bunch of settings
 
 	first_run = settings().getBoolean(["server", "firstRun"])
-	locales = dict((l.language, dict(language=l.language, display=l.display_name, english=l.english_name)) for l in LOCALES)
+
+	locales = dict()
+	for l in LOCALES:
+		try:
+			locales[l.language] = dict(language=l.language, display=l.display_name, english=l.english_name)
+		except:
+			_logger.exception("Error while collecting available locales")
+
+	filetypes = sorted(full_extension_tree().keys())
 	extensions = map(lambda ext: ".{}".format(ext), get_all_extensions())
 
 	#~~ prepare full set of template vars for rendering
@@ -433,6 +443,7 @@ def _get_render_kwargs(templates, plugin_names, plugin_vars, now):
 		templates=templates,
 		pluginNames=plugin_names,
 		locales=locales,
+		supportedFiletypes=filetypes,
 		supportedExtensions=extensions
 	)
 	render_kwargs.update(plugin_vars)

@@ -20,6 +20,8 @@ $(function() {
         self.elementPasswordInput = undefined;
         self.elementLoginButton = undefined;
 
+        self.externalAddressNotification = undefined;
+
         self.userMenuText = ko.pureComputed(function() {
             if (self.loggedIn()) {
                 return self.username();
@@ -61,6 +63,10 @@ $(function() {
                         log.info("User " + response.name + " logged in")
                     }
 
+                    if (response.session) {
+                        OctoPrint.socket.sendAuth(response.name, response.session);
+                    }
+
                     // Show warning if connecting from what seems to be an external IP address, unless ignored
                     var ignorePublicAddressWarning = localStorage["loginState.ignorePublicAddressWarning"];
                     if (ignorePublicAddressWarning === undefined) {
@@ -76,10 +82,15 @@ $(function() {
                             "everyone with an internet connection.</p><p><strong>Please see " +
                             "<a href=\"%(url)s\" target=\"_blank\" rel=\"noreferrer noopener\">this blog post</a> for " +
                             "ways to safely access your OctoPrint instance from remote.</strong></p>" +
-                            "<p><small>If you know what you are doing or you are sure this message is" +
+                            "<p><small>If you know what you are doing or you are sure this message is " +
                             "mistaken since you are in an isolated LAN, feel free to ignore it.</small></p>");
                         text = _.sprintf(text, {url: "https://octoprint.org/blog/2018/09/03/safe-remote-access/"});
-                        new PNotify({
+
+                        if (self.externalAddressNotification !== undefined) {
+                            self.externalAddressNotification.remove();
+                        }
+
+                        self.externalAddressNotification = new PNotify({
                             title: gettext("Possible external access detected"),
                             text: text,
                             hide: false,
@@ -188,7 +199,7 @@ $(function() {
                     new PNotify({title: gettext("Logout successful"), text: gettext("You are now logged out"), type: "success"});
                     self.fromResponse(response);
                 })
-                .error(function(error) {
+                .fail(function(error) {
                     if (error && error.status === 401) {
                          self.fromResponse(false);
                     }
@@ -200,6 +211,14 @@ $(function() {
                 event.preventDefault();
             }
             self.login();
+        };
+
+        self.onDataUpdaterReauthRequired = function(reason) {
+            if (reason === "logout" || reason === "removed") {
+                self.logout();
+            } else {
+                self.requestData();
+            }
         };
 
         self.onAllBound = function(allViewModels) {
