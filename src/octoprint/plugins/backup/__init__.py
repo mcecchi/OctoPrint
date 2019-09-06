@@ -619,6 +619,11 @@ class BackupPlugin(octoprint.plugin.SettingsPlugin,
 		try:
 			if exclude is None:
 				exclude = []
+			if not isinstance(exclude, list):
+				exclude = list(exclude)
+
+			if "timelapse" in exclude:
+				exclude.append("timelapse_tmp")
 
 			configfile = settings._configfile
 			basedir = settings._basedir

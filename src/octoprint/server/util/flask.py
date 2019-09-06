@@ -33,7 +33,7 @@ from octoprint.util import DefaultOrderedDict
 from octoprint.util.json import JsonEncoding
 from octoprint.util.net import is_lan_address
 
-from werkzeug.contrib.cache import BaseCache
+from cachelib import BaseCache
 
 from past.builtins import basestring
 
@@ -271,7 +271,7 @@ def fix_flask_jsonify():
 			data = args or kwargs
 
 		return current_app.response_class(
-			dumps(data, indent=indent, separators=separators) + '\n',
+			dumps(data, indent=indent, separators=separators, allow_nan=False) + '\n',
 			mimetype='application/json'
 		)
 
@@ -459,7 +459,7 @@ class ReverseProxiedEnvironment(object):
 
 #~~ request and response versions
 
-from werkzeug.wrappers import cached_property
+from werkzeug.utils import cached_property
 
 class OctoPrintFlaskRequest(flask.Request):
 	environment_wrapper = staticmethod(lambda x: x)
@@ -584,7 +584,8 @@ def passive_login():
 
 	elif settings().getBoolean(["accessControl", "autologinLocal"]) \
 			and settings().get(["accessControl", "autologinAs"]) is not None \
-			and settings().get(["accessControl", "localNetworks"]) is not None:
+			and settings().get(["accessControl", "localNetworks"]) is not None \
+			and not "active_logout" in flask.request.cookies:
 
 		autologin_as = settings().get(["accessControl", "autologinAs"])
 		local_networks = _local_networks()
@@ -609,7 +610,7 @@ def passive_login():
 					                                                                          additional_private=ip_check_trusted)
 					return flask.jsonify(response)
 		except:
-			logger.exception("Could not autologin user {} for networks {}".format(autologin_as, localNetworks))
+			logger.exception("Could not autologin user {} for networks {}".format(autologin_as, local_networks))
 
 	return "", 204
 
@@ -780,7 +781,7 @@ def cache_check_response_headers(response):
 
 	headers = response.headers
 
-	if "Cache-Control" in headers and "no-cache" in headers["Cache-Control"]:
+	if "Cache-Control" in headers and ("no-cache" in headers["Cache-Control"] or "no-store" in headers["Cache-Control"]):
 		return True
 
 	if "Pragma" in headers and "no-cache" in headers["Pragma"]:
@@ -1049,6 +1050,18 @@ def conditional(condition, met):
 	return decorator
 
 
+def with_client_revalidation(f):
+	@functools.wraps(f)
+	def decorated_function(*args, **kwargs):
+		r = f(*args, **kwargs)
+
+		if isinstance(r, flask.Response):
+			r = add_revalidation_response_headers(r)
+
+		return r
+	return decorated_function
+
+
 def with_revalidation_checking(etag_factory=None,
                                lastmodified_factory=None,
                                condition=None,
@@ -1129,15 +1142,50 @@ def check_lastmodified(lastmodified):
 	       lastmodified >= flask.request.if_modified_since
 
 
+def add_revalidation_response_headers(response):
+	import werkzeug.http
+
+	cache_control = werkzeug.http.parse_dict_header(response.headers.get("Cache-Control", ""))
+	if "no-cache" not in cache_control:
+		cache_control["no-cache"] = None
+	if "must-revalidate" not in cache_control:
+		cache_control["must-revalidate"] = None
+	response.headers["Cache-Control"] = werkzeug.http.dump_header(cache_control)
+
+	return response
+
+
 def add_non_caching_response_headers(response):
-	response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0"
+	import werkzeug.http
+
+	cache_control = werkzeug.http.parse_dict_header(response.headers.get("Cache-Control", ""))
+	if "no-store" not in cache_control:
+		cache_control["no-store"] = None
+	if "no-cache" not in cache_control:
+		cache_control["no-cache"] = None
+	if "must-revalidate" not in cache_control:
+		cache_control["must-revalidate"] = None
+	if "post-check" not in cache_control or cache_control["post-check"] != "0":
+		cache_control["post-check"] = "0"
+	if "pre-check" not in cache_control or cache_control["pre-check"] != "0":
+		cache_control["pre-check"] = "0"
+	if "max-age" not in cache_control or cache_control["max-age"] != "0":
+		cache_control["max-age"] = "0"
+	response.headers["Cache-Control"] = werkzeug.http.dump_header(cache_control)
+
 	response.headers["Pragma"] = "no-cache"
 	response.headers["Expires"] = "-1"
 	return response
 
 
 def add_no_max_age_response_headers(response):
-	response.headers["Cache-Control"] = "max-age=0"
+	import werkzeug.http
+
+	cache_control = werkzeug.http.parse_dict_header(response.headers.get("Cache-Control", ""))
+	if "max-age" not in cache_control or cache_control["max-age"] != "0":
+		cache_control["max-age"] = "0"
+	response.headers["Cache-Control"] = werkzeug.http.dump_header(cache_control)
+
 	return response
 
 
@@ -1184,12 +1232,11 @@ def get_flask_user_from_request(request):
 	"""
 	import octoprint.server.util
 	import flask_login
-	from octoprint.settings import settings
 
 	user = None
 
 	apikey = octoprint.server.util.get_api_key(request)
-	if settings().getBoolean(["api", "enabled"]) and apikey is not None:
+	if apikey is not None:
 		user = octoprint.server.util.get_user_for_apikey(apikey)
 
 	if user is None:
@@ -1523,7 +1570,8 @@ def collect_plugin_assets(enable_gcodeviewer=True, preferred_stylesheet="css"):
 			all_assets = implementation.get_assets()
 			basefolder = implementation.get_asset_folder()
 		except:
-			logger.exception("Got an error while trying to collect assets from {}, ignoring assets from the plugin".format(name))
+			logger.exception("Got an error while trying to collect assets from {}, ignoring assets from the plugin".format(name),
+			                 extra=dict(plugin=name))
 			continue
 
 		def asset_exists(category, asset):
