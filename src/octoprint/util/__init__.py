@@ -39,8 +39,11 @@ logger = logging.getLogger(__name__)
 
 
 def to_bytes(s_or_u, encoding="utf-8", errors="strict"):
-	# type: (Union[str, bytes], str, str) -> bytes
+	# type: (Union[unicode, bytes], str, str) -> bytes
 	"""Make sure ``s_or_u`` is a bytestring."""
+	if not isinstance(s_or_u, basestring):
+		s_or_u = str(s_or_u)
+
 	if isinstance(s_or_u, unicode):
 		return s_or_u.encode(encoding, errors=errors)
 	else:
@@ -48,8 +51,11 @@ def to_bytes(s_or_u, encoding="utf-8", errors="strict"):
 
 
 def to_unicode(s_or_u, encoding="utf-8", errors="strict"):
-	# type: (Union[str, bytes], str, str) -> str
+	# type: (Union[unicode, bytes], str, str) -> unicode
 	"""Make sure ``s_or_u`` is a unicode string."""
+	if not isinstance(s_or_u, basestring):
+		s_or_u = str(s_or_u)
+
 	if isinstance(s_or_u, bytes):
 		return s_or_u.decode(encoding, errors=errors)
 	else:
@@ -57,7 +63,7 @@ def to_unicode(s_or_u, encoding="utf-8", errors="strict"):
 
 
 def to_native_str(s_or_u):
-	# type: (Union[str, bytes]) -> Union[str, bytes]
+	# type: (Union[unicode, bytes]) -> str
 	"""Make sure ``s_or_u`` is a 'str'."""
 	if sys.version_info[0] == 2:
 		return to_bytes(s_or_u)
@@ -1777,3 +1783,16 @@ def count(gen):
 	for _ in gen:
 		n += 1
 	return n
+
+
+def timing(f):
+	@wraps(f)
+	def decorator(*args, **kwargs):
+		start = monotonic_time()
+		try:
+			return f(*args, **kwargs)
+		finally:
+			end = monotonic_time()
+			logging.getLogger("octoprint.util.timing").debug("func:{} took {:0.2f}s".format(f.__name__,
+			                                                                                end - start))
+	return decorator
